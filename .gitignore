@@ -248,6 +248,15 @@ output/*
 !output/.gitkeep
 
 # =============================================================================
+# Postman Directory (keep structure, ignore generated files)
+# =============================================================================
+postman/collections/*.json
+postman/environments/*.json
+!postman/.gitkeep
+!postman/collections/.gitkeep
+!postman/environments/.gitkeep
+
+# =============================================================================
 # Agent/AI Context Files (Sensitive)
 # =============================================================================
 CLAUDE.md

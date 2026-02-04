@@ -219,7 +219,7 @@ async function main() {
       fs.mkdirSync(outputDir, { recursive: true });
     }
     
-    // Write collection
+    // Write collection to output
     const collectionJson = collection.toJSON();
     fs.writeFileSync(options.output, JSON.stringify(collectionJson, null, 2));
     console.log(`✅ Collection written to: ${options.output}`);
@@ -232,6 +232,30 @@ async function main() {
     }
     fs.writeFileSync(options.environment, JSON.stringify(environment, null, 2));
     console.log(`✅ Environment written to: ${options.environment}`);
+    
+    // Also write to postman/ directory for workspace push
+    const postmanDir = path.join(process.cwd(), 'postman');
+    const collectionsDir = path.join(postmanDir, 'collections');
+    const environmentsDir = path.join(postmanDir, 'environments');
+    
+    if (!fs.existsSync(collectionsDir)) {
+      fs.mkdirSync(collectionsDir, { recursive: true });
+    }
+    if (!fs.existsSync(environmentsDir)) {
+      fs.mkdirSync(environmentsDir, { recursive: true });
+    }
+    
+    // Write to postman directory with sanitized names
+    const sanitizedName = (api.info?.title || 'collection').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+    const postmanCollectionPath = path.join(collectionsDir, `${sanitizedName}.json`);
+    const postmanEnvironmentPath = path.join(environmentsDir, `${sanitizedName}-environment.json`);
+    
+    fs.writeFileSync(postmanCollectionPath, JSON.stringify(collectionJson, null, 2));
+    fs.writeFileSync(postmanEnvironmentPath, JSON.stringify(environment, null, 2));
+    console.log(`✅ Collection written to: ${postmanCollectionPath}`);
+    console.log(`✅ Environment written to: ${postmanEnvironmentPath}`);
+    console.log('');
+    console.log('💡 Ready for: postman workspace push --yes');
     
     // Summary
     console.log('\n📊 Generation Summary:');

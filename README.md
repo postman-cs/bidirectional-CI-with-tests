@@ -285,7 +285,35 @@ jobs:
 output/
 ├── collection.json      # Generated Postman collection with tests
 └── environment.json     # Environment variables
+
+postman/                 # For postman workspace push
+├── collections/
+│   └── task-management-api.json
+└── environments/
+    └── task-management-api-environment.json
 ```
+
+## ☁️ Push to Postman Workspace
+
+The generator outputs to both `output/` (for local use) and `postman/` (for workspace push).
+
+### Using Postman CLI (Recommended)
+
+```bash
+# Login to Postman (first time only)
+postman login --with-api-key $POSTMAN_API_KEY
+
+# Push collection and environment to workspace
+postman workspace push --yes
+```
+
+This uses the native Postman CLI `workspace push` command (BETA) which handles:
+- Automatic ID regeneration
+- Create or update logic
+- Validation
+- Both collections and environments in one command
+
+The files in `postman/collections/` and `postman/environments/` are automatically created when you run `node src/index.js`.
 
 ### Collection Structure
 

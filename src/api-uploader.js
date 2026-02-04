@@ -1,10 +1,25 @@
 #!/usr/bin/env node
 
 /**
- * Postman API Uploader
+ * Postman API Uploader (DEPRECATED)
  * 
- * Uploads generated collections to Postman Cloud via the Postman API.
- * Handles the proper format conversion for API compatibility.
+ * ⚠️  DEPRECATION NOTICE:
+ * This module is deprecated in favor of `postman workspace push --yes`
+ * which is now the recommended way to upload collections to Postman.
+ * 
+ * The `postman workspace push` command (BETA) handles:
+ * - Automatic ID regeneration
+ * - Create or update logic
+ * - Validation
+ * - Both collections and environments
+ * 
+ * Usage:
+ *   postman workspace push --yes
+ * 
+ * This file is kept for:
+ * 1. Backward compatibility
+ * 2. Reference for direct Postman API usage
+ * 3. Advanced use cases requiring programmatic control
  */
 
 import fs from 'fs';
@@ -81,8 +96,11 @@ function cleanCollectionForApi(collection) {
 
 /**
  * Upload collection to Postman
+ * @deprecated Use `postman workspace push --yes` instead
  */
 async function uploadCollection(collectionPath, apiKey, workspaceId) {
+  console.warn('⚠️  uploadCollection is deprecated. Use: postman workspace push --yes');
+  
   const collectionJson = JSON.parse(fs.readFileSync(collectionPath, 'utf8'));
   const cleaned = cleanCollectionForApi(collectionJson);
   
@@ -114,8 +132,11 @@ async function uploadCollection(collectionPath, apiKey, workspaceId) {
 
 /**
  * Update existing collection
+ * @deprecated Use `postman workspace push --yes` instead
  */
 async function updateCollection(collectionId, collectionPath, apiKey) {
+  console.warn('⚠️  updateCollection is deprecated. Use: postman workspace push --yes');
+  
   const collectionJson = JSON.parse(fs.readFileSync(collectionPath, 'utf8'));
   const cleaned = cleanCollectionForApi(collectionJson);
   
@@ -166,8 +187,11 @@ async function listCollections(apiKey, workspaceId) {
 
 /**
  * Upload environment to Postman
+ * @deprecated Use `postman workspace push --yes` instead
  */
 async function uploadEnvironment(environmentPath, apiKey, workspaceId) {
+  console.warn('⚠️  uploadEnvironment is deprecated. Use: postman workspace push --yes');
+  
   const envJson = JSON.parse(fs.readFileSync(environmentPath, 'utf8'));
   
   // Clean environment
@@ -223,6 +247,10 @@ async function main() {
   try {
     switch (command) {
       case 'upload': {
+        console.warn('\n⚠️  DEPRECATION WARNING');
+        console.warn('This command is deprecated. Use instead:');
+        console.warn('  postman workspace push --yes\n');
+        
         const collectionPath = args[1] || 'output/collection.json';
         
         // Check if collection exists
@@ -245,6 +273,10 @@ async function main() {
       }
       
       case 'upload-env': {
+        console.warn('\n⚠️  DEPRECATION WARNING');
+        console.warn('This command is deprecated. Use instead:');
+        console.warn('  postman workspace push --yes\n');
+        
         const envPath = args[1] || 'output/environment.json';
         console.log('Uploading environment...');
         const result = await uploadEnvironment(envPath, apiKey, workspaceId);
@@ -263,9 +295,15 @@ async function main() {
       
       default:
         console.log(`
-Postman API Uploader
+Postman API Uploader (DEPRECATED)
 
-Usage:
+⚠️  DEPRECATION NOTICE:
+This tool is deprecated in favor of the official Postman CLI workspace commands.
+
+RECOMMENDED:
+  postman workspace push --yes
+
+DEPRECATED COMMANDS (still functional):
   node src/api-uploader.js upload [collection-path]   Upload/update collection
   node src/api-uploader.js upload-env [env-path]      Upload environment
   node src/api-uploader.js list                       List collections
@@ -273,6 +311,12 @@ Usage:
 Environment:
   POSTMAN_API_KEY      Required - Your Postman API key
   POSTMAN_WORKSPACE_ID Optional - Target workspace ID
+
+The new 'postman workspace push' command handles:
+- Automatic ID regeneration
+- Create or update logic
+- Validation
+- Both collections and environments in one command
         `);
     }
   } catch (error) {

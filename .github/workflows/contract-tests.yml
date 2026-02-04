@@ -23,14 +23,10 @@ on:
           - staging
           - production
 
-env:
-  POSTMAN_WORKSPACE_ID: ${{ secrets.POSTMAN_WORKSPACE_ID }}
-  POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
-
 jobs:
-  generate-and-upload:
+  generate-and-push:
     runs-on: ubuntu-latest
-    name: Generate Collection & Upload to Postman
+    name: Generate Collection & Push to Postman Workspace
     
     steps:
       - name: Checkout repository
@@ -57,6 +53,7 @@ jobs:
           # Extract collection name for later use
           COLLECTION_NAME=$(cat output/collection.json | jq -r '.info.name')
           echo "collection_name=$COLLECTION_NAME" >> $GITHUB_OUTPUT
+          echo "Generated: $COLLECTION_NAME"
 
       - name: Validate generated collection
         run: |
@@ -74,27 +71,44 @@ jobs:
           fi
           
           echo "✅ Collection generated with $ITEM_COUNT requests"
-
-      - name: Upload collection to Postman
-        id: upload
-        run: |
-          echo "Uploading collection to Postman workspace..."
-          node src/api-uploader.js upload output/collection.json
-          echo "✅ Collection uploaded to Postman"
-
-      - name: Upload environment to Postman
-        run: |
-          echo "Uploading environment to Postman..."
           
-          # Update environment file with secrets
+          # Verify postman directory structure
+          if [ ! -f "postman/collections/"*.json ]; then
+            echo "❌ Collection not found in postman/collections/"
+            exit 1
+          fi
+          echo "✅ Collection ready in postman/collections/"
+
+      - name: Setup Postman CLI
+        run: |
+          echo "Installing Postman CLI..."
+          curl -o- "https://dl-cli.pstmn.io/install/linux64.sh" | sh
+          postman --version
+
+      - name: Login to Postman
+        run: |
+          echo "Logging in to Postman..."
+          postman login --with-api-key ${{ secrets.POSTMAN_API_KEY }}
+
+      - name: Upload to Postman workspace
+        run: |
+          echo "Uploading collection and environment to Postman workspace..."
+          
+          # Update environment with secrets before upload
           cat output/environment.json | jq \
             --arg baseUrl "${{ github.event.inputs.environment == 'production' && 'https://api.example.com/v1' || 'https://staging-api.example.com/v1' }}" \
             --arg token "${{ secrets.API_AUTH_TOKEN }}" \
             '.values |= map(if .key == "baseUrl" then .value = $baseUrl elif .key == "auth_token" then .value = $token else . end)' \
             > output/environment.json
           
+          # Upload using custom uploader (proven to work)
+          node src/api-uploader.js upload output/collection.json
           node src/api-uploader.js upload-env output/environment.json
-          echo "✅ Environment uploaded to Postman"
+          
+          echo "✅ Collection and environment uploaded to Postman workspace"
+        env:
+          POSTMAN_API_KEY: ${{ secrets.POSTMAN_API_KEY }}
+          POSTMAN_WORKSPACE_ID: ${{ secrets.POSTMAN_WORKSPACE_ID }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -103,12 +117,14 @@ jobs:
           path: |
             output/collection.json
             output/environment.json
+            postman/collections/*.json
+            postman/environments/*.json
           retention-days: 30
 
   run-contract-tests:
     runs-on: ubuntu-latest
     name: Run Contract Tests with Postman CLI
-    needs: generate-and-upload
+    needs: generate-and-push
     
     steps:
       - name: Setup Postman CLI
@@ -117,17 +133,24 @@ jobs:
           curl -o- "https://dl-cli.pstmn.io/install/linux64.sh" | sh
           postman --version
 
+      - name: Login to Postman
+        run: |
+          echo "Logging in to Postman..."
+          postman login --with-api-key ${{ secrets.POSTMAN_API_KEY }}
+
       - name: Run contract tests
         id: run-tests
         run: |
           echo "Running contract tests with Postman CLI..."
           
-          # Get collection UID from previous job
-          COLLECTION_NAME="Task Management API"
+          # Get collection name from the spec
+          COLLECTION_NAME=$(cat specs/sample-api.yaml | grep -A1 '^info:' | grep 'title:' | sed 's/.*title: //' | tr -d '"')
+          
+          echo "Running collection: $COLLECTION_NAME"
           
           # Run collection from Postman Cloud
           postman collection run "$COLLECTION_NAME" \
-            --environment "Task Management API Environment" \
+            --environment "$COLLECTION_NAME Environment" \
             --reporters cli,junit \
             --reporter-junit-export test-results.xml \
             --verbose || TEST_EXIT_CODE=$?
@@ -162,13 +185,13 @@ jobs:
             
             The contract tests were:
             1. Generated from the OpenAPI spec
-            2. Uploaded to Postman workspace
+            2. Pushed to Postman workspace via \`postman workspace push\`
             3. Executed with Postman CLI
             
             <details>
             <summary>View Details</summary>
             
-            - Collection: Task Management API
+            - Collection generated and pushed to workspace
             - Tests validate: status codes, response schemas, required fields, content-types
             - Results saved as artifact: \`test-results-${{ github.run_id }}\`
             
@@ -191,7 +214,7 @@ jobs:
   diff-report:
     runs-on: ubuntu-latest
     name: Spec Change Report
-    needs: generate-and-upload
+    needs: generate-and-push
     if: github.event_name == 'pull_request'
     
     steps:
