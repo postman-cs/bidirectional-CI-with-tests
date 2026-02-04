@@ -10,11 +10,12 @@ const POSTMAN_API_KEY = process.env.POSTMAN_API_KEY;
 const WORKSPACE_ID = process.env.POSTMAN_WORKSPACE_ID || '06d2843a-af55-4443-a628-83a45a979403';
 const POSTMAN_API_BASE = 'https://api.getpostman.com';
 
-// Collections to KEEP (canonical)
+// Collections to KEEP (canonical) - most recent ones
 const KEEP_COLLECTIONS = [
-  '17929829-be7ebff7-004e-4119-a147-6366aff706ce', // Task Management API
-  '17929829-f55086b9-5f07-4490-b5f4-49479fa19a4e', // Task Management API - Docs
-  '17929829-a68796d5-de4f-4dfe-b35e-927a02212a4d', // Task Management API - Tests
+  '17929829-be7ebff7-004e-4119-a147-6366aff706ce', // Task Management API (original)
+  '17929829-87ba4ad4-47ec-4c0e-828e-15be17146612', // Task Management API - Docs (new)
+  '17929829-0dd01e53-6869-48c4-b746-9daa32438582', // Task Management API - Smoke Tests
+  '17929829-c0e8f9e8-d8ab-4dfa-8713-7671848e667b', // Task Management API - Contract Tests
 ];
 
 async function apiRequest(method, endpoint) {
