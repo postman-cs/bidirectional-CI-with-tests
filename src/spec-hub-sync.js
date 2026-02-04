@@ -233,33 +233,33 @@ async function sync(options) {
 
   const generatedCollections = [];
 
-  // Step 4: Generate docs collection (always, no tests)
-  logStep('Step 4', 'Generating docs collection from Spec Hub');
+  // Step 4: Generate or sync docs collection (always, no tests)
+  logStep('Step 4', 'Generating/syncing docs collection from Spec Hub');
   const docsCollectionName = `${specName} - Docs`;
   let docsCollectionUid = null;
   try {
-    docsCollectionUid = await client.generateCollection(specId, docsCollectionName, {
+    docsCollectionUid = await client.generateOrSyncCollection(specId, docsCollectionName, {
       enableOptionalParameters: true,
       folderStrategy: 'Tags'
     });
-    logSuccess(`Docs collection generated: ${docsCollectionUid}`);
+    logSuccess(`Docs collection: ${docsCollectionUid}`);
     generatedCollections.push({ name: docsCollectionName, uid: docsCollectionUid, type: 'docs' });
   } catch (error) {
     logError(`Failed to generate docs collection: ${error.message}`);
   }
 
-  // Step 5: Generate smoke test collection
+  // Step 5: Generate or sync smoke test collection
   if (generateSmoke) {
     logInfo('Waiting for Spec Hub...');
     await new Promise(resolve => setTimeout(resolve, 3000));
 
-    logStep('Step 5', 'Generating smoke test collection from Spec Hub');
+    logStep('Step 5', 'Generating/syncing smoke test collection from Spec Hub');
     const smokeCollectionName = `${specName} - Smoke Tests`;
-    const smokeCollectionUid = await client.generateCollection(specId, smokeCollectionName, {
+    const smokeCollectionUid = await client.generateOrSyncCollection(specId, smokeCollectionName, {
       enableOptionalParameters: true,
       folderStrategy: 'Tags'
     });
-    logSuccess(`Smoke test collection generated: ${smokeCollectionUid}`);
+    logSuccess(`Smoke test collection: ${smokeCollectionUid}`);
 
     logStep('Step 6', 'Generating and injecting smoke tests');
     const smokeTestScripts = generateTestScriptsForSpec(api, TestLevel.SMOKE);
@@ -271,19 +271,19 @@ async function sync(options) {
     generatedCollections.push({ name: smokeCollectionName, uid: smokeCollectionUid, type: 'smoke' });
   }
 
-  // Step 6: Generate contract test collection
+  // Step 6: Generate or sync contract test collection
   if (generateContract) {
     logInfo('Waiting for Spec Hub...');
     await new Promise(resolve => setTimeout(resolve, 3000));
 
     const contractStepNum = generateSmoke ? '7' : '5';
-    logStep(`Step ${contractStepNum}`, 'Generating contract test collection from Spec Hub');
+    logStep(`Step ${contractStepNum}`, 'Generating/syncing contract test collection from Spec Hub');
     const contractCollectionName = `${specName} - Contract Tests`;
-    const contractCollectionUid = await client.generateCollection(specId, contractCollectionName, {
+    const contractCollectionUid = await client.generateOrSyncCollection(specId, contractCollectionName, {
       enableOptionalParameters: true,
       folderStrategy: 'Tags'
     });
-    logSuccess(`Contract test collection generated: ${contractCollectionUid}`);
+    logSuccess(`Contract test collection: ${contractCollectionUid}`);
 
     const injectStepNum = generateSmoke ? '8' : '6';
     logStep(`Step ${injectStepNum}`, 'Generating and injecting contract tests');

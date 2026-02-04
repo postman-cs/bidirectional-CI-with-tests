@@ -73,9 +73,52 @@ class SpecHubClient {
   }
 
   /**
-   * Generate collection from spec
+   * Get collections generated from a spec
    */
-  async generateCollection(specId, name, options = {}) {
+  async getSpecGeneratedCollections(specId) {
+    try {
+      const result = await this.request('GET', `/specs/${specId}/generations/collection`);
+      return result.collections || [];
+    } catch (error) {
+      // If endpoint doesn't exist or returns error, return empty array
+      return [];
+    }
+  }
+
+  /**
+   * Generate or sync collection from spec
+   * 
+   * If collection with same name exists for this spec, sync it.
+   * Otherwise, generate a new collection.
+   */
+  async generateOrSyncCollection(specId, name, options = {}) {
+    // First, check if a collection with this name already exists for this spec
+    const existingCollections = await this.getSpecGeneratedCollections(specId);
+    const existingCollection = existingCollections.find(c => c.name === name);
+
+    if (existingCollection) {
+      // Collection exists, sync it with the spec
+      // The ID from spec generations is just the collection ID
+      // We need to find the full UID from the collections list
+      console.log(`  Syncing existing collection: ${existingCollection.id}`);
+      await this.syncCollectionWithSpec(existingCollection.id, specId);
+      
+      // Wait for sync to complete
+      await this.waitForCollectionSync(existingCollection.id);
+      
+      // Find the full UID from collections list
+      const collections = await this.request('GET', `/collections?workspace=${this.workspaceId}`);
+      const collection = collections.collections?.find(c => c.name === name);
+      
+      if (!collection) {
+        throw new Error(`Synced collection "${name}" not found`);
+      }
+      
+      return collection.uid;
+    }
+
+    // No existing collection, generate new one
+    console.log(`  Generating new collection: ${name}`);
     const payload = {
       name,
       options: {
@@ -85,7 +128,7 @@ class SpecHubClient {
       }
     };
 
-    const result = await this.request(
+    await this.request(
       'POST',
       `/specs/${specId}/generations/collection`,
       payload
@@ -103,6 +146,38 @@ class SpecHubClient {
     }
 
     return collection.uid;
+  }
+
+  /**
+   * Sync collection with spec
+   */
+  async syncCollectionWithSpec(collectionId, specId) {
+    return this.request(
+      'PUT',
+      `/collections/${collectionId}/synchronizations?specId=${specId}`
+    );
+  }
+
+  /**
+   * Wait for collection sync to complete
+   */
+  async waitForCollectionSync(collectionId, maxAttempts = 10) {
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Check if collection still exists and is accessible
+      try {
+        const collection = await this.getCollection(collectionId);
+        if (collection) {
+          return;
+        }
+      } catch (error) {
+        // Collection might be temporarily unavailable during sync
+        console.log(`  Waiting for sync... (${i + 1}/${maxAttempts})`);
+      }
+    }
+
+    console.warn(`  Sync wait timed out, but collection should be updated`);
   }
 
   /**
