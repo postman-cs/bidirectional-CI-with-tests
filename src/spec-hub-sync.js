@@ -6,13 +6,14 @@
  * Main orchestrator for the Spec Hub workflow:
  * 1. Parse OpenAPI spec
  * 2. Upload/update spec in Spec Hub
- * 3. Generate docs collection (via Spec Hub)
- * 4. Generate test collection (via Spec Hub + inject tests)
- * 5. Upload environment
+ * 3. Generate docs collection (via Spec Hub) - no tests
+ * 4. Generate smoke test collection (via Spec Hub + inject smoke tests)
+ * 5. Generate contract test collection (via Spec Hub + inject contract tests)
+ * 6. Upload environment
  */
 
 import { parseSpec } from './parser.js';
-import { generateTestScriptsForSpec } from './test-generator.js';
+import { generateTestScriptsForSpec, TestLevel } from './test-generator.js';
 import { SpecHubClient } from './spec-hub-client.js';
 import fs from 'fs';
 import path from 'path';
@@ -56,6 +57,7 @@ function parseArgs() {
     workspaceId: process.env.POSTMAN_WORKSPACE_ID,
     apiKey: process.env.POSTMAN_API_KEY,
     dryRun: false,
+    testLevel: 'all', // 'smoke', 'contract', or 'all'
     help: false
   };
 
@@ -74,6 +76,10 @@ function parseArgs() {
       case '--api-key':
       case '-k':
         options.apiKey = args[++i];
+        break;
+      case '--test-level':
+      case '-t':
+        options.testLevel = args[++i];
         break;
       case '--dry-run':
       case '-d':
@@ -100,6 +106,7 @@ Options:
   --spec, -s        Path to OpenAPI spec file (required)
   --workspace, -w   Postman workspace ID (default: env.POSTMAN_WORKSPACE_ID)
   --api-key, -k     Postman API key (default: env.POSTMAN_API_KEY)
+  --test-level, -t  Test level to generate: smoke, contract, or all (default: all)
   --dry-run, -d     Validate without uploading
   --help, -h        Show this help message
 
@@ -108,8 +115,14 @@ Environment Variables:
   POSTMAN_WORKSPACE_ID  Required - Target workspace ID
 
 Examples:
-  # Basic usage
+  # Generate all collections (docs + smoke + contract)
   node src/spec-hub-sync.js --spec specs/api.yaml
+
+  # Generate only smoke tests
+  node src/spec-hub-sync.js --spec specs/api.yaml --test-level smoke
+
+  # Generate only contract tests
+  node src/spec-hub-sync.js --spec specs/api.yaml --test-level contract
 
   # With explicit credentials
   node src/spec-hub-sync.js --spec specs/api.yaml --workspace <id> --api-key <key>
@@ -172,6 +185,13 @@ async function sync(options) {
     process.exit(1);
   }
 
+  const generateSmoke = options.testLevel === 'all' || options.testLevel === 'smoke';
+  const generateContract = options.testLevel === 'all' || options.testLevel === 'contract';
+
+  logInfo(`Test level: ${options.testLevel}`);
+  logInfo(`Generate smoke tests: ${generateSmoke}`);
+  logInfo(`Generate contract tests: ${generateContract}\n`);
+
   if (options.dryRun) {
     logInfo('DRY RUN MODE - No changes will be made\n');
   }
@@ -211,7 +231,9 @@ async function sync(options) {
   specId = await client.uploadSpec(specName, specContent, specId);
   logSuccess(`Spec uploaded: ${specId}`);
 
-  // Step 4: Generate docs collection
+  const generatedCollections = [];
+
+  // Step 4: Generate docs collection (always, no tests)
   logStep('Step 4', 'Generating docs collection from Spec Hub');
   const docsCollectionName = `${specName} - Docs`;
   let docsCollectionUid = null;
@@ -221,36 +243,62 @@ async function sync(options) {
       folderStrategy: 'Tags'
     });
     logSuccess(`Docs collection generated: ${docsCollectionUid}`);
+    generatedCollections.push({ name: docsCollectionName, uid: docsCollectionUid, type: 'docs' });
   } catch (error) {
     logError(`Failed to generate docs collection: ${error.message}`);
-    // Continue - docs collection is nice-to-have
   }
 
-  // Wait a bit before generating test collection (Spec Hub lock)
-  logInfo('Waiting for Spec Hub to complete...');
-  await new Promise(resolve => setTimeout(resolve, 5000));
+  // Step 5: Generate smoke test collection
+  if (generateSmoke) {
+    logInfo('Waiting for Spec Hub...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
-  // Step 5: Generate test collection
-  logStep('Step 5', 'Generating test collection from Spec Hub');
-  const testCollectionName = `${specName} - Tests`;
-  const testCollectionUid = await client.generateCollection(specId, testCollectionName, {
-    enableOptionalParameters: true,
-    folderStrategy: 'Tags'
-  });
-  logSuccess(`Test collection generated: ${testCollectionUid}`);
+    logStep('Step 5', 'Generating smoke test collection from Spec Hub');
+    const smokeCollectionName = `${specName} - Smoke Tests`;
+    const smokeCollectionUid = await client.generateCollection(specId, smokeCollectionName, {
+      enableOptionalParameters: true,
+      folderStrategy: 'Tags'
+    });
+    logSuccess(`Smoke test collection generated: ${smokeCollectionUid}`);
 
-  // Step 6: Generate and inject contract tests
-  logStep('Step 6', 'Generating contract tests');
-  const testScripts = generateTestScriptsForSpec(api);
-  const testCount = Object.keys(testScripts).length - 1; // Exclude 'default'
-  logInfo(`Generated ${testCount} test scripts`);
+    logStep('Step 6', 'Generating and injecting smoke tests');
+    const smokeTestScripts = generateTestScriptsForSpec(api, TestLevel.SMOKE);
+    const smokeTestCount = Object.keys(smokeTestScripts).length - 1;
+    logInfo(`Generated ${smokeTestCount} smoke test scripts`);
 
-  logStep('Step 7', 'Injecting contract tests into test collection');
-  await client.addTestScripts(testCollectionUid, testScripts);
-  logSuccess('Contract tests injected into collection');
+    await client.addTestScripts(smokeCollectionUid, smokeTestScripts);
+    logSuccess('Smoke tests injected into collection');
+    generatedCollections.push({ name: smokeCollectionName, uid: smokeCollectionUid, type: 'smoke' });
+  }
+
+  // Step 6: Generate contract test collection
+  if (generateContract) {
+    logInfo('Waiting for Spec Hub...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    const contractStepNum = generateSmoke ? '7' : '5';
+    logStep(`Step ${contractStepNum}`, 'Generating contract test collection from Spec Hub');
+    const contractCollectionName = `${specName} - Contract Tests`;
+    const contractCollectionUid = await client.generateCollection(specId, contractCollectionName, {
+      enableOptionalParameters: true,
+      folderStrategy: 'Tags'
+    });
+    logSuccess(`Contract test collection generated: ${contractCollectionUid}`);
+
+    const injectStepNum = generateSmoke ? '8' : '6';
+    logStep(`Step ${injectStepNum}`, 'Generating and injecting contract tests');
+    const contractTestScripts = generateTestScriptsForSpec(api, TestLevel.CONTRACT);
+    const contractTestCount = Object.keys(contractTestScripts).length - 1;
+    logInfo(`Generated ${contractTestCount} contract test scripts`);
+
+    await client.addTestScripts(contractCollectionUid, contractTestScripts);
+    logSuccess('Contract tests injected into collection');
+    generatedCollections.push({ name: contractCollectionName, uid: contractCollectionUid, type: 'contract' });
+  }
 
   // Step 7: Create/update environment
-  logStep('Step 8', 'Creating environment');
+  const envStepNum = generateSmoke && generateContract ? '9' : generateSmoke || generateContract ? '7' : '5';
+  logStep(`Step ${envStepNum}`, 'Creating environment');
   const environment = generateEnvironment(api);
   
   // Check for existing environment
@@ -258,11 +306,9 @@ async function sync(options) {
   const existingEnv = environments.environments?.find(e => e.name === environment.name);
   
   if (existingEnv) {
-    // Update existing
     await client.request('PUT', `/environments/${existingEnv.uid}`, { environment });
     logSuccess(`Environment updated: ${existingEnv.uid}`);
   } else {
-    // Create new
     const envResult = await client.request('POST', `/environments?workspace=${options.workspaceId}`, { environment });
     logSuccess(`Environment created: ${envResult.environment?.uid}`);
   }
@@ -274,16 +320,23 @@ async function sync(options) {
 
   logSuccess(`Spec: ${specName}`);
   logSuccess(`Spec Hub ID: ${specId}`);
-  if (docsCollectionUid) {
-    logSuccess(`Docs Collection: ${docsCollectionUid}`);
+  
+  for (const coll of generatedCollections) {
+    logSuccess(`${coll.type.toUpperCase()}: ${coll.name}`);
+    log(`   UID: ${coll.uid}`, GREEN);
   }
-  logSuccess(`Test Collection: ${testCollectionUid}`);
-  logSuccess(`Contract Tests: ${testCount} endpoints covered`);
 
   log('\n📋 Next Steps:', BLUE);
   log('  1. Open Postman and verify collections in workspace');
-  log('  2. Run tests: postman collection run "' + testCollectionName + '"');
-  log('  3. On spec change, re-run: node src/spec-hub-sync.js --spec ' + options.spec);
+  
+  if (generateSmoke) {
+    log(`  2. Run smoke tests: postman collection run "${specName} - Smoke Tests"`);
+  }
+  if (generateContract) {
+    log(`  3. Run contract tests: postman collection run "${specName} - Contract Tests"`);
+  }
+  
+  log(`  4. On spec change, re-run: node src/spec-hub-sync.js --spec ${options.spec}`);
 
   log('\n═══════════════════════════════════════════════════════════\n', BLUE);
 }

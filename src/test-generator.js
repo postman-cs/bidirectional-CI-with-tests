@@ -1,30 +1,45 @@
 #!/usr/bin/env node
 
 /**
- * Contract Test Generator
+ * Test Generator
  * 
  * Generates Postman test scripts from OpenAPI spec metadata.
+ * Supports two test levels:
+ * - smoke: Basic health checks (status code, response time)
+ * - contract: Comprehensive validation (schemas, fields, content-types)
+ * 
  * These tests are injected into Spec Hub-generated collections.
  */
 
 import { extractEndpoints, getResponseSchema, getRequiredFields } from './parser.js';
 
 /**
+ * Test level enumeration
+ */
+export const TestLevel = {
+  SMOKE: 'smoke',
+  CONTRACT: 'contract'
+};
+
+/**
  * Generate test scripts for all endpoints in a spec
  * @param {Object} api - Parsed OpenAPI spec
+ * @param {string} level - Test level ('smoke' or 'contract')
  * @returns {Object} Map of endpoint names to test scripts
  */
-export function generateTestScriptsForSpec(api) {
+export function generateTestScriptsForSpec(api, level = TestLevel.CONTRACT) {
   const endpoints = extractEndpoints(api);
   const testScripts = {};
 
   for (const endpoint of endpoints) {
     const testName = endpoint.name || `${endpoint.method} ${endpoint.path}`;
-    testScripts[testName] = generateTestScript(endpoint);
+    testScripts[testName] = generateTestScript(endpoint, level);
   }
 
   // Add default test script for any unmatched endpoints
-  testScripts['default'] = generateDefaultTestScript();
+  testScripts['default'] = level === TestLevel.SMOKE 
+    ? generateDefaultSmokeTestScript() 
+    : generateDefaultContractTestScript();
 
   return testScripts;
 }
@@ -32,14 +47,75 @@ export function generateTestScriptsForSpec(api) {
 /**
  * Generate test script for a single endpoint
  * @param {Object} endpoint - Endpoint object from parser
+ * @param {string} level - Test level ('smoke' or 'contract')
  * @returns {Array} Test script lines
  */
-function generateTestScript(endpoint) {
+function generateTestScript(endpoint, level) {
+  if (level === TestLevel.SMOKE) {
+    return generateSmokeTestScript(endpoint);
+  } else {
+    return generateContractTestScript(endpoint);
+  }
+}
+
+/**
+ * Generate SMOKE test script - Basic health checks only
+ * @param {Object} endpoint - Endpoint object from parser
+ * @returns {Array} Test script lines
+ */
+function generateSmokeTestScript(endpoint) {
+  const tests = [];
+
+  // Header comment
+  tests.push(`// Smoke tests for: ${endpoint.method} ${endpoint.path}`);
+  tests.push(`// Basic health checks - generated from OpenAPI spec`);
+  tests.push('');
+
+  // 1. Status code validation - only check it's a success code
+  const statusCodes = Object.keys(endpoint.responses);
+  const successCodes = statusCodes.filter(code => code.startsWith('2'));
+  if (successCodes.length > 0) {
+    tests.push(`// Status code validation`);
+    tests.push(`pm.test("Status code is success", function () {`);
+    tests.push(`    pm.expect(pm.response.code).to.be.oneOf([${successCodes.join(', ')}]);`);
+    tests.push(`});`);
+    tests.push('');
+  }
+
+  // 2. Response time check only
+  tests.push(`// Performance check`);
+  tests.push(`pm.test("Response time is acceptable", function () {`);
+  tests.push(`    const threshold = parseInt(pm.environment.get("RESPONSE_TIME_THRESHOLD") || "2000");`);
+  tests.push(`    pm.expect(pm.response.responseTime).to.be.below(threshold);`);
+  tests.push(`});`);
+  tests.push('');
+
+  // 3. Basic response body check (not empty for success codes)
+  tests.push(`// Response body exists`);
+  tests.push(`pm.test("Response body is not empty", function () {`);
+  tests.push(`    if (pm.response.code >= 200 && pm.response.code < 300) {`);
+  tests.push(`        const contentType = pm.response.headers.get("Content-Type");`);
+  tests.push(`        if (contentType && contentType.includes("application/json")) {`);
+  tests.push(`            const jsonData = pm.response.json();`);
+  tests.push(`            pm.expect(jsonData).to.not.be.undefined;`);
+  tests.push(`        }`);
+  tests.push(`    }`);
+  tests.push(`});`);
+
+  return tests;
+}
+
+/**
+ * Generate CONTRACT test script - Comprehensive validation
+ * @param {Object} endpoint - Endpoint object from parser
+ * @returns {Array} Test script lines
+ */
+function generateContractTestScript(endpoint) {
   const tests = [];
 
   // Header comment
   tests.push(`// Contract tests for: ${endpoint.method} ${endpoint.path}`);
-  tests.push(`// Generated from OpenAPI spec`);
+  tests.push(`// Comprehensive validation - generated from OpenAPI spec`);
   tests.push('');
 
   // 1. Status code validation
@@ -130,10 +206,28 @@ function generateTestScript(endpoint) {
 }
 
 /**
- * Generate default test script for unmatched endpoints
- * @returns {Array} Default test script lines
+ * Generate default SMOKE test script for unmatched endpoints
+ * @returns {Array} Default smoke test script lines
  */
-function generateDefaultTestScript() {
+function generateDefaultSmokeTestScript() {
+  return [
+    '// Default smoke tests',
+    'pm.test("Status code is success", function () {',
+    '    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);',
+    '});',
+    '',
+    'pm.test("Response time is acceptable", function () {',
+    '    const threshold = parseInt(pm.environment.get("RESPONSE_TIME_THRESHOLD") || "2000");',
+    '    pm.expect(pm.response.responseTime).to.be.below(threshold);',
+    '});'
+  ];
+}
+
+/**
+ * Generate default CONTRACT test script for unmatched endpoints
+ * @returns {Array} Default contract test script lines
+ */
+function generateDefaultContractTestScript() {
   return [
     '// Default contract tests',
     'pm.test("Status code is valid", function () {',
@@ -143,6 +237,10 @@ function generateDefaultTestScript() {
     'pm.test("Response time is acceptable", function () {',
     '    const threshold = parseInt(pm.environment.get("RESPONSE_TIME_THRESHOLD") || "2000");',
     '    pm.expect(pm.response.responseTime).to.be.below(threshold);',
+    '});',
+    '',
+    'pm.test("Response body is valid JSON", function () {',
+    '    pm.response.to.be.json;',
     '});'
   ];
 }
@@ -182,6 +280,7 @@ export function generatePreRequestScript(endpoint) {
 }
 
 export default {
+  TestLevel,
   generateTestScriptsForSpec,
   generatePreRequestScript
 };
