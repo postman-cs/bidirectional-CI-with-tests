@@ -1,0 +1,244 @@
+================================================================================
+                    SPEC-DERIVED CONTRACT TEST WORKFLOW
+================================================================================
+
+NORMAL COMMIT/PUSH FLOW
+=======================
+
+    DEVELOPER                    GITHUB                        POSTMAN
+    ─────────                   ───────                        ───────
+       │                           │                              │
+       │  1. Edit spec.yaml        │                              │
+       │     (add endpoint)        │                              │
+       │                           │                              │
+       │  2. git commit            │                              │
+       │     -m "Add endpoint"     │                              │
+       │                           │                              │
+       │  3. git push origin main  │                              │
+       │──────────────────────────▶│                              │
+       │                           │                              │
+       │                           │  4. Trigger GitHub Actions   │
+       │                           │     (paths: specs/**)        │
+       │                           │────────┐                     │
+       │                           │        │                     │
+       │                           │◀───────┘                     │
+       │                           │                              │
+       │                           │  5. npm ci                   │
+       │                           │     (install deps)           │
+       │                           │                              │
+       │                           │  6. node src/index.js        │
+       │                           │     ─────────────────────    │
+       │                           │     Parse OpenAPI spec       │
+       │                           │     Extract 8 endpoints      │
+       │                           │     Generate ~36 tests       │
+       │                           │     Build collection.json    │
+       │                           │     ─────────────────────    │
+       │                           │                              │
+       │                           │  7. node src/api-uploader.js │
+       │                           │     ─────────────────────    │
+       │                           │     Check if exists          │
+       │                           │     Clean for API format     │
+       │                           │     POST /collections        │
+       │                           │     ─────────────────────    │
+       │                           │                              │
+       │                           │  8. Upload collection        │
+       │                           │─────────────────────────────▶│
+       │                           │                              │
+       │                           │                         9. Store
+       │                           │                            in
+       │                           │                         Workspace
+       │                           │                              │
+       │                           │◀─────────────────────────────│
+       │                           │     Return UID               │
+       │                           │                              │
+       │                           │ 10. Install Postman CLI      │
+       │                           │                              │
+       │                           │ 11. postman collection run   │
+       │                           │     "Task Management API"    │
+       │                           │─────────────────────────────▶│
+       │                           │                              │
+       │                           │                         12. Execute
+       │                           │                             tests
+       │                           │                         (8 endpoints)
+       │                           │                              │
+       │                           │◀─────────────────────────────│
+       │                           │     Return results           │
+       │                           │                              │
+       │                           │ 13. Upload artifacts         │
+       │                           │     (test-results.xml)       │
+       │                           │                              │
+       │◀──────────────────────────│ 14. Report status            │
+       │                           │     (success/failure)        │
+       │                           │                              │
+
+
+PULL REQUEST FLOW
+=================
+
+    DEVELOPER                    GITHUB                        POSTMAN
+    ─────────                   ───────                        ───────
+       │                           │                              │
+       │  1. Create feature branch │                              │
+       │     git checkout -b       │                              │
+       │     feature/new-endpoint  │                              │
+       │                           │                              │
+       │  2. Edit spec.yaml        │                              │
+       │     (add endpoint)        │                              │
+       │                           │                              │
+       │  3. git commit & push     │                              │
+       │                           │                              │
+       │  4. Create PR             │                              │
+       │──────────────────────────▶│                              │
+       │                           │                              │
+       │                           │  5. Trigger PR workflow      │
+       │                           │     (on: pull_request)       │
+       │                           │                              │
+       │                           │  6. Generate from PR branch  │
+       │                           │                              │
+       │                           │  7. Generate from base       │
+       │                           │     (main branch)            │
+       │                           │                              │
+       │                           │  8. Compare collections      │
+       │                           │     - Count endpoints        │
+       │                           │     - Detect changes         │
+       │                           │                              │
+       │                           │  9. Comment on PR            │
+       │                           │     "Added 1 endpoint"       │
+       │                           │     "Tests auto-generated"   │
+       │◀──────────────────────────│                              │
+       │                           │                              │
+       │ 10. Code review           │                              │
+       │     (approve)             │                              │
+       │                           │                              │
+       │ 11. Merge PR              │                              │
+       │──────────────────────────▶│                              │
+       │                           │                              │
+       │                           │ 12. Trigger push workflow    │
+       │                           │     (see NORMAL FLOW above)  │
+       │                           │                              │
+
+
+TEST EXECUTION DETAIL
+=====================
+
+For each endpoint in collection:
+
+    ┌─────────────────────────────────────┐
+    │  GET /tasks/{taskId}                │
+    │  "Get a specific task"              │
+    └─────────────┬───────────────────────┘
+                  │
+                  ▼
+    ┌─────────────────────────────────────┐
+    │  1. Pre-request Script              │
+    │     - Set path params               │
+    │     - Set auth token                │
+    └─────────────┬───────────────────────┘
+                  │
+                  ▼
+    ┌─────────────────────────────────────┐
+    │  2. Send HTTP Request               │
+    │     GET https://api.example.com/    │
+    │         v1/tasks/task-001           │
+    └─────────────┬───────────────────────┘
+                  │
+                  ▼
+    ┌─────────────────────────────────────┐
+    │  3. Receive Response                │
+    │     Status: 200 OK                  │
+    │     Time: 145ms                     │
+    │     Body: {...}                     │
+    └─────────────┬───────────────────────┘
+                  │
+                  ▼
+    ┌─────────────────────────────────────┐
+    │  4. Execute Test Scripts            │
+    │                                     │
+    │  ✓ Status code is 200               │
+    │  ✓ Response time is acceptable      │
+    │    (< 2000ms)                       │
+    │  ✓ Content-Type is application/json │
+    │  ✓ Response matches schema          │
+    │    (type: object)                   │
+    │  ✓ Response has required fields     │
+    │    (id, title, status, ...)         │
+    └─────────────────────────────────────┘
+
+
+FILE TRANSFORMATIONS
+====================
+
+specs/sample-api.yaml
+        │
+        │  @apidevtools/swagger-parser
+        ▼
+┌─────────────────────┐
+│  Parsed OpenAPI     │
+│  - 8 endpoints      │
+│  - 5 schemas        │
+│  - 12 parameters    │
+└─────────┬───────────┘
+          │
+          │  src/generator.js
+          ▼
+┌─────────────────────┐
+│  Generated Tests    │
+│  - 8 status checks  │
+│  - 8 response time  │
+│  - 8 content-type   │
+│  - 8 schema checks  │
+│  - 36 required fld  │
+└─────────┬───────────┘
+          │
+          │  src/builder.js
+          ▼
+┌─────────────────────┐
+│  output/            │
+│  collection.json    │
+│  environment.json   │
+└─────────┬───────────┘
+          │
+          │  src/api-uploader.js
+          ▼
+┌─────────────────────┐
+│  Postman API        │
+│  POST /collections  │
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│  Postman Workspace  │
+│  [CSE] OAS to...    │
+│  Collection stored  │
+└─────────────────────┘
+
+
+KEY INSIGHT: NO ORPHANED TESTS
+==============================
+
+Traditional Approach (BROKEN):
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  Spec v1    │───▶│ Collection  │───▶│ Manual Tests│
+│  /tasks/... │    │ generated   │    │ written     │
+└─────────────┘    └─────────────┘    └──────┬──────┘
+                                             │
+┌─────────────┐    ┌─────────────┐          │
+│  Spec v2    │───▶│ Collection  │          │  ❌ LOST!
+│  /items/... │    │ regenerated │◀─────────┘     Tests
+└─────────────┘    └─────────────┘              orphaned
+
+Spec-Derived Approach (THIS PROJECT):
+┌─────────────┐    ┌─────────────────────┐
+│  Spec v1    │───▶│ Collection + Tests  │
+│  /tasks/... │    │ (auto-generated)    │
+└─────────────┘    └─────────────────────┘
+                          │
+┌─────────────┐           │
+│  Spec v2    │           │  ✅ Tests follow!
+│  /items/... │───────────┘
+└─────────────┘    ┌─────────────────────┐
+                   │ Collection + Tests  │
+                   │ (regenerated)       │
+                   └─────────────────────┘
+
+================================================================================
