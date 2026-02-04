@@ -289,6 +289,90 @@ class SpecHubClient {
     const specs = await this.listSpecs();
     return specs.find(s => s.name === name);
   }
+
+  /**
+   * Get collection tags
+   */
+  async getCollectionTags(collectionUid) {
+    return this.request('GET', `/collections/${collectionUid}/tags`);
+  }
+
+  /**
+   * Update collection tags (replaces all existing tags)
+   * @param {string} collectionUid - Collection UID
+   * @param {string[]} tags - Array of tag slugs
+   */
+  async updateCollectionTags(collectionUid, tags) {
+    // Validate and format tags
+    const formattedTags = tags.map(tag => ({
+      slug: this.validateTag(tag)
+    }));
+
+    return this.request('PUT', `/collections/${collectionUid}/tags`, {
+      tags: formattedTags
+    });
+  }
+
+  /**
+   * Validate and format a tag according to Postman rules:
+   * - 2-64 characters
+   * - Must match: ^[a-z][a-z0-9-]*[a-z0-9]+$
+   * - Starts with letter, ends with letter/number, can contain hyphens
+   */
+  validateTag(tag) {
+    if (!tag || typeof tag !== 'string') {
+      throw new Error('Tag must be a non-empty string');
+    }
+
+    // Convert to lowercase and replace invalid characters
+    let clean = tag.toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')  // Replace invalid chars with hyphens
+      .replace(/^-+|-+$/g, '');      // Trim leading/trailing hyphens
+
+    // Ensure starts with letter
+    if (!/^[a-z]/.test(clean)) {
+      clean = 'tag-' + clean;
+    }
+
+    // Ensure ends with letter or number
+    if (!/[a-z0-9]$/.test(clean)) {
+      clean = clean + '0';
+    }
+
+    // Length validation (2-64 chars)
+    if (clean.length < 2) {
+      clean = 'tag-' + clean;
+    }
+    if (clean.length > 64) {
+      clean = clean.substring(0, 64).replace(/-+$/, '');  // Trim without trailing hyphen
+      // Re-check ending
+      if (!/[a-z0-9]$/.test(clean)) {
+        clean = clean.substring(0, 63) + '0';
+      }
+    }
+
+    return clean;
+  }
+
+  /**
+   * Apply standard tags to a collection based on type
+   * @param {string} collectionUid - Collection UID
+   * @param {string} type - Collection type: 'main', 'smoke', or 'contract'
+   */
+  async applyCollectionTags(collectionUid, type) {
+    const tagMap = {
+      'main': ['generated', 'docs'],
+      'smoke': ['generated', 'smoke'],
+      'contract': ['generated', 'contract']
+    };
+
+    const tags = tagMap[type];
+    if (!tags) {
+      throw new Error(`Unknown collection type: ${type}. Use 'main', 'smoke', or 'contract'.`);
+    }
+
+    return this.updateCollectionTags(collectionUid, tags);
+  }
 }
 
 export default SpecHubClient;

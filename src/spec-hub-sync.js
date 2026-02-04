@@ -14,6 +14,7 @@
 
 import { parseSpec } from './parser.js';
 import { generateTestScriptsForSpec, TestLevel } from './test-generator.js';
+import { generateEnvironmentForServer } from './environment-generator.js';
 import { SpecHubClient } from './spec-hub-client.js';
 import fs from 'fs';
 import path from 'path';
@@ -132,35 +133,17 @@ Examples:
 `);
 }
 
-// Generate environment file
-function generateEnvironment(api) {
-  const servers = api.servers || [{ url: 'https://api.example.com' }];
-  const baseUrl = servers[0].url;
-
-  return {
-    name: `${api.info?.title || 'API'} Environment`,
-    values: [
-      {
-        key: 'baseUrl',
-        value: baseUrl,
-        type: 'default',
-        enabled: true
-      },
-      {
-        key: 'RESPONSE_TIME_THRESHOLD',
-        value: '2000',
-        type: 'default',
-        enabled: true
-      },
-      {
-        key: 'auth_token',
-        value: '',
-        type: 'secret',
-        enabled: true
-      }
-    ],
-    _postman_variable_scope: 'environment'
-  };
+// Generate environments for each server
+function generateEnvironments(api) {
+  const servers = api.servers || [{ url: 'https://api.example.com', description: 'Default' }];
+  const environments = [];
+  
+  for (const server of servers) {
+    const env = generateEnvironmentForServer(api, server);
+    environments.push(env);
+  }
+  
+  return environments;
 }
 
 // Main sync function
@@ -244,6 +227,14 @@ async function sync(options) {
     });
     logSuccess(`Docs collection: ${docsCollectionUid}`);
     generatedCollections.push({ name: docsCollectionName, uid: docsCollectionUid, type: 'main' });
+
+    // Apply tags
+    try {
+      await client.applyCollectionTags(docsCollectionUid, 'main');
+      logSuccess(`Tags applied: generated, docs`);
+    } catch (tagError) {
+      logInfo(`Note: Could not apply tags: ${tagError.message}`);
+    }
   } catch (error) {
     logError(`Failed to generate docs collection: ${error.message}`);
   }
@@ -269,6 +260,14 @@ async function sync(options) {
     await client.addTestScripts(smokeCollectionUid, smokeTestScripts);
     logSuccess('Smoke tests injected into collection');
     generatedCollections.push({ name: smokeCollectionName, uid: smokeCollectionUid, type: 'smoke' });
+
+    // Apply tags
+    try {
+      await client.applyCollectionTags(smokeCollectionUid, 'smoke');
+      logSuccess(`Tags applied: generated, smoke`);
+    } catch (tagError) {
+      logInfo(`Note: Could not apply tags: ${tagError.message}`);
+    }
   }
 
   // Step 6: Generate or sync contract test collection
@@ -294,23 +293,34 @@ async function sync(options) {
     await client.addTestScripts(contractCollectionUid, contractTestScripts);
     logSuccess('Contract tests injected into collection');
     generatedCollections.push({ name: contractCollectionName, uid: contractCollectionUid, type: 'contract' });
+
+    // Apply tags
+    try {
+      await client.applyCollectionTags(contractCollectionUid, 'contract');
+      logSuccess(`Tags applied: generated, contract`);
+    } catch (tagError) {
+      logInfo(`Note: Could not apply tags: ${tagError.message}`);
+    }
   }
 
-  // Step 7: Create/update environment
+  // Step 7: Create/update environments (one per server)
   const envStepNum = generateSmoke && generateContract ? '9' : generateSmoke || generateContract ? '7' : '5';
-  logStep(`Step ${envStepNum}`, 'Creating environment');
-  const environment = generateEnvironment(api);
+  logStep(`Step ${envStepNum}`, 'Creating environments');
+  const environments = generateEnvironments(api);
   
-  // Check for existing environment
-  const environments = await client.request('GET', `/environments?workspace=${options.workspaceId}`);
-  const existingEnv = environments.environments?.find(e => e.name === environment.name);
+  // Get existing environments
+  const existingEnvs = await client.request('GET', `/environments?workspace=${options.workspaceId}`);
   
-  if (existingEnv) {
-    await client.request('PUT', `/environments/${existingEnv.uid}`, { environment });
-    logSuccess(`Environment updated: ${existingEnv.uid}`);
-  } else {
-    const envResult = await client.request('POST', `/environments?workspace=${options.workspaceId}`, { environment });
-    logSuccess(`Environment created: ${envResult.environment?.uid}`);
+  for (const environment of environments) {
+    const existingEnv = existingEnvs.environments?.find(e => e.name === environment.name);
+    
+    if (existingEnv) {
+      await client.request('PUT', `/environments/${existingEnv.uid}`, { environment });
+      logSuccess(`Environment updated: ${environment.name} (${existingEnv.uid})`);
+    } else {
+      const envResult = await client.request('POST', `/environments?workspace=${options.workspaceId}`, { environment });
+      logSuccess(`Environment created: ${environment.name} (${envResult.environment?.uid})`);
+    }
   }
 
   // Summary
